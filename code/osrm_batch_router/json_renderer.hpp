@@ -1,0 +1,231 @@
+// based on
+// https://svn.apache.org/repos/asf/mesos/tags/release-0.9.0-incubating-RC0/src/common/json.hpp
+
+#ifndef JSON_RENDERER_HPP
+#define JSON_RENDERER_HPP
+
+#include "osrm/json_container.hpp"
+
+#include <algorithm>
+#include <iterator>
+#include <ostream>
+#include <string>
+#include <vector>
+
+#include <fmt/compile.h>
+
+namespace osrm
+{
+namespace util
+{
+
+inline bool RequiresJSONStringEscaping(const std::string &string)
+{
+    for (const char letter : string)
+    {
+        switch (letter)
+        {
+        case '\\':
+        case '"':
+        case '/':
+        case '\b':
+        case '\f':
+        case '\n':
+        case '\r':
+        case '\t':
+            return true;
+        default:
+            continue;
+        }
+    }
+    return false;
+}
+
+inline void EscapeJSONString(const std::string &input, std::string &output)
+{
+    for (const char letter : input)
+    {
+        switch (letter)
+        {
+        case '\\':
+            output += "\\\\";
+            break;
+        case '"':
+            output += "\\\"";
+            break;
+        case '/':
+            output += "\\/";
+            break;
+        case '\b':
+            output += "\\b";
+            break;
+        case '\f':
+            output += "\\f";
+            break;
+        case '\n':
+            output += "\\n";
+            break;
+        case '\r':
+            output += "\\r";
+            break;
+        case '\t':
+            output += "\\t";
+            break;
+        default:
+            output.append(1, letter);
+            break;
+        }
+    }
+}
+
+namespace json
+{
+
+template <typename Out> struct Renderer
+{
+    explicit Renderer(Out &_out) : out(_out) {}
+
+    void operator()(const String &string)
+    {
+        write('"');
+        // here we assume that vast majority of strings don't need to be escaped,
+        // so we check it first and escape only if needed
+        if (RequiresJSONStringEscaping(string.value))
+        {
+            std::string escaped;
+            // just a guess that 16 bytes for escaped characters will be enough to avoid
+            // reallocations
+            escaped.reserve(string.value.size() + 16);
+            EscapeJSONString(string.value, escaped);
+
+            write(escaped);
+        }
+        else
+        {
+            write(string.value);
+        }
+        write('"');
+    }
+
+    void operator()(const Number &number)
+    {
+        // `fmt::memory_buffer` stores first 500 bytes in the object itself(i.e. on stack in this
+        // case) and then grows using heap if needed
+        fmt::memory_buffer buffer;
+        fmt::format_to(std::back_inserter(buffer), FMT_COMPILE("{}"), number.value);
+
+        // Truncate to 10 decimal places
+        size_t decimalpos = std::find(buffer.begin(), buffer.end(), '.') - buffer.begin();
+        if (buffer.size() > (decimalpos + 10))
+        {
+            buffer.resize(decimalpos + 10);
+        }
+
+        write(buffer.data(), buffer.size());
+    }
+
+    void operator()(const Object &object)
+    {
+        write('{');
+        for (auto it = object.values.begin(), end = object.values.end(); it != end;)
+        {
+            write('\"');
+            write(it->first);
+            write<>("\":");
+            mapbox::util::apply_visitor(Renderer(out), it->second);
+            if (++it != end)
+            {
+                write(',');
+            }
+        }
+        write('}');
+    }
+
+    void operator()(const Array &array)
+    {
+        write('[');
+        for (auto it = array.values.cbegin(), end = array.values.cend(); it != end;)
+        {
+            mapbox::util::apply_visitor(Renderer(out), *it);
+            if (++it != end)
+            {
+                write(',');
+            }
+        }
+        write(']');
+    }
+
+    void operator()(const True &) { write<>("true"); }
+
+    void operator()(const False &) { write<>("false"); }
+
+    void operator()(const Null &) { write<>("null"); }
+
+  private:
+    void write(const std::string &str);
+    void write(const char *str, size_t size);
+    void write(char ch);
+
+    template <size_t StrLength> void write(const char (&str)[StrLength])
+    {
+        write(str, StrLength - 1);
+    }
+
+  private:
+    Out &out;
+};
+
+template <> void Renderer<std::vector<char>>::write(const std::string &str)
+{
+    out.insert(out.end(), str.begin(), str.end());
+}
+
+template <> void Renderer<std::vector<char>>::write(const char *str, size_t size)
+{
+    out.insert(out.end(), str, str + size);
+}
+
+template <> void Renderer<std::vector<char>>::write(char ch) { out.push_back(ch); }
+
+template <> void Renderer<std::ostream>::write(const std::string &str) { out << str; }
+
+template <> void Renderer<std::ostream>::write(const char *str, size_t size)
+{
+    out.write(str, size);
+}
+
+template <> void Renderer<std::ostream>::write(char ch) { out << ch; }
+
+template <> void Renderer<std::string>::write(const std::string &str) { out += str; }
+
+template <> void Renderer<std::string>::write(const char *str, size_t size)
+{
+    out.append(str, size);
+}
+
+template <> void Renderer<std::string>::write(char ch) { out += ch; }
+
+inline void render(std::ostream &out, const Object &object)
+{
+    Renderer renderer(out);
+    renderer(object);
+}
+
+inline void render(std::string &out, const Object &object)
+{
+    Renderer renderer(out);
+    renderer(object);
+}
+
+inline void render(std::vector<char> &out, const Object &object)
+{
+    Renderer renderer(out);
+    renderer(object);
+}
+
+
+} // namespace json
+} // namespace util
+} // namespace osrm
+
+#endif // JSON_RENDERER_HPP
