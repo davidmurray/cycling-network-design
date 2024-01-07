@@ -704,7 +704,7 @@ def _calculate_fitness(individual,
     od_df_exploded_copy['total_distance'] = od_df_exploded_copy['trip_bike_distance'] + od_df_exploded_copy['orig_dest_tot_disag_dist']
     od_df_exploded_copy['total_duration'] = od_df_exploded_copy['trip_duration'] + od_df_exploded_copy['orig_dest_tot_disag_dist'] / walking_speed
 
-    min_idx = od_df_exploded_copy.groupby('od_df_idx')['total_duration'].idxmin() # For each od trip, take the one with the smallest total duration
+    min_idx = od_df_exploded_copy.groupby('od_df_idx')['total_duration'].idxmin(skipna=True) # For each od trip, take the one with the smallest total duration
 
     # The unreachable trips are the ones where the minimum duration is still np.nan
     unreachable_trips += min_idx.isna().sum()    
