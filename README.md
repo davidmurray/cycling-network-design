@@ -13,6 +13,16 @@ In addition to the README.md files in this repository, three other files are ava
 2. [TRB paper](https://drive.google.com/file/d/1VVYe4lEfTFNjvyqU_ZGSat-2CQGjj8sk/view?usp=sharing), presented at the 2024 TRB annual meetings.
 3. [TRB poster](https://drive.google.com/file/d/1oawVAlYTGGMUJUdXUWnlu9ihhyC-V1K7/view?usp=sharing), presented at the 2024 TRB annual meetings.
 
+## Code download and python environment setup
+1. Install Python (follow instructions on https://www.python.org/downloads/)
+
+Then, inside a terminal:
+2. Clone the code from GitHub: `git clone https://github.com/davidmurray/cycling-network-design.git`
+3. Change to the cloned directory: `cd cycling-network-design`
+4. Create a virtual environment: `python -m venv .`
+5. Activate the virtual environment: `source bin/activate` (note: command may differ on Windows)
+6. Install the required packages: `pip install -r requirements.txt`
+
 ## Data preparation
 The `code/data_preparation.py` Python script prepares the data necessary for the optimization process.
 
