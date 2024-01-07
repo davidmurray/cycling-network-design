@@ -1,5 +1,18 @@
 # Bicycle network design optimization
 
+## Authors
+1. David Murray, master's student at Polytechnique Montréal's [Mobility research chair](https://www.polymtl.ca/mobilite/)
+2. Catherine Morency, PhD. Full professor and holder of the Mobility research chair.
+
+## Questions
+For any questions about the usage of this code, please open an issue in this repository
+
+## Documentation
+In addition to the README.md files in this repository, three other files are available as documentation:
+1. [David Murray's master thesis](https://drive.google.com/file/d/1kTuoGaPsiHiOmf9ruYX4MlUdnu9qzl8k/view?usp=sharing) (in French only)
+2. [TRB paper](https://drive.google.com/file/d/1VVYe4lEfTFNjvyqU_ZGSat-2CQGjj8sk/view?usp=sharing), presented at the 2024 TRB annual meetings.
+3. [TRB poster](https://drive.google.com/file/d/1oawVAlYTGGMUJUdXUWnlu9ihhyC-V1K7/view?usp=sharing), presented at the 2024 TRB annual meetings.
+
 ## Data preparation
 The `code/data_preparation.py` Python script prepares the data necessary for the optimization process.
 
