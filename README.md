@@ -1,19 +1,19 @@
 # Bicycle network design optimization
 
-## Authors
+# Authors
 1. David Murray, master's student at Polytechnique Montréal's [Mobility research chair](https://www.polymtl.ca/mobilite/)
 2. Catherine Morency, PhD. Full professor and holder of the Mobility research chair.
 
-## Questions
+# Questions
 For any questions about the usage of this code, please open an issue in this repository
 
-## Documentation
+# Documentation
 In addition to the README.md files in this repository, three other files are available as documentation:
 1. [David Murray's master thesis](https://drive.google.com/file/d/1kTuoGaPsiHiOmf9ruYX4MlUdnu9qzl8k/view?usp=sharing) (in French only)
 2. [TRB paper](https://drive.google.com/file/d/1VVYe4lEfTFNjvyqU_ZGSat-2CQGjj8sk/view?usp=sharing), presented at the 2024 TRB annual meetings.
 3. [TRB poster](https://drive.google.com/file/d/1oawVAlYTGGMUJUdXUWnlu9ihhyC-V1K7/view?usp=sharing), presented at the 2024 TRB annual meetings.
 
-## Code download and python environment setup
+# Code download and python environment setup
 1. Install Python (follow instructions on https://www.python.org/downloads/)
 
 Then, inside a terminal:
@@ -23,7 +23,7 @@ Then, inside a terminal:
 5. Activate the virtual environment: `source bin/activate` (note: command may differ on Windows)
 6. Install the required packages: `pip install -r requirements.txt`
 
-## Data preparation
+# Data preparation
 The `code/data_preparation.py` Python script prepares the data necessary for the optimization process.
 
 ```bash
@@ -37,12 +37,13 @@ Parameters:
     --verbose: Enable verbose mode (default: False).
 ```
 
-### Prerequisites
-1. OD demand data in csv format. Your data can have many columns, but must at the very least have the `lonorig`, `londest`, `latorig` and `latdest` columns in WGS84 coordinates.
+## Prerequisites
 2. A polygon that defines the boundary of the area to optimize. Must be provided in GeoJSON format. An example is availble in the `examples/` folder.
+1. OD demand data in csv format. Your data can have many columns, but must at the very least have the `lonorig`, `londest`, `latorig` and `latdest` columns in WGS84 coordinates. An example demand file is provided in the `examples/` folder, which defines 500 randomly generated OD lines in the given polygon. See image below for a visualisation of the polygon and OD data.
+  
+![Example polygon with fake OD demand](examples/polygon_with_demand.png)
 
-
-### Usage
+## Usage
 
 To run the script, use the following command in your terminal:
 
@@ -107,3 +108,4 @@ Dropped 27385 (81.2 %) trips. Remaining trips: 6356
   osm_xml._save_graph_xml(
 2024-01-02 12:12:37 Saved graph as .osm file at PosixPath('data/osrm_network.xml')
 ```
+# OptimizationThe main Python script of this project is `genetic_algorithm.py`, located in the `code/` subfolder. This code is the crux of this research: given a set of parameters, it will design the best cycling network for a given territory.## PrerequisitesBefore using this script, you must complete the data preparation step outlined above in this file.## UsageThis script has two main modes:1. Manual (or "one-off" mode)2. Automatic (or "hyperparameter optimization" mode)In manual mode, you must supply the values of every hyperparameter, for instance the size of the population (`--n_pop X`), crossover probability (`--cxpb Y`), the mutation probability (`--mutpb Z`), etc. If you do not supply values for all hyperparameters, defaults will be used, but optimization results will likely be useless because genetic algorithms are highly sensible to the choice of hyperparameters.

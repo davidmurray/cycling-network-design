@@ -479,7 +479,7 @@ def _optuna_run(trial, parameters, data, results_directory):
     scores = []
     logbook_path = results_directory / "trial_logbook.csv"
     try:
-        logbook = pd.read_csv(logbook_path) # TODO: Do not hardcode this path here
+        logbook = pd.read_csv(logbook_path)
         start_n = len(logbook[logbook.trial == trial.number].repetition) # Find how many repetitions have been done so far
         scores = logbook[logbook.trial == trial.number].min_fit.to_list() # Get the previous min fitnesses obtained
     except FileNotFoundError:
@@ -575,20 +575,22 @@ def run_optuna(args):
         WALKING_SPEED=args.walking_speed,
         PATIENCE=args.max_gen_no_improvement,
         MIN_DELTA=args.min_delta_improvement,
+        DATA_FOLDER=args.data_folder,
+        OPTUNA_LOG_PATH=args.optuna_log,
         NGEN=5000, # Number of generations; arbitrarily large number of generations to let it run until a combination of min_delta_improvement and max_gen_no_improvement
         CHECKPOINT_FREQ=5,
         N_REPETITIONS=10, # Number of repetitions of each trial
         PRUNING_MIN_REPETITIONS=5, # Do at least X steps in a trial before pruning
         PRUNING_WARMUP_TRIALS=40, # Do at least X trials before pruning
-        VALUE_OF_TIME=10, # $/h
-        UNREACHABLE_TRIP_COST=30, # $
+        VALUE_OF_TIME=args.value_of_time, # $/h
+        UNREACHABLE_TRIP_COST=args.unreachable_trip_cost, # $
     )
     parameters = merge_parameters(parameters, base_params)
     parameters, data = _setup_simulation(parameters)
 
-    study_name = str(parameters.optuna_log)  # Unique identifier of the study.
+    study_name = str(parameters.OPTUNA_LOG_PATH)  # Unique identifier of the study.
     storage = optuna.storages.JournalStorage(
-        optuna.storages.JournalFileStorage(str(parameters.optuna_log)),
+        optuna.storages.JournalFileStorage(str(parameters.OPTUNA_LOG_PATH)),
     )
     logger.debug("optuna: created storage")
 
