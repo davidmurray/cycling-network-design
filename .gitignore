@@ -3,6 +3,7 @@ bin/
 .DS_Store
 *.DS_Store
 cache/
+include/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -20,7 +21,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/

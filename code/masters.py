@@ -201,7 +201,7 @@ def create_exploded_od_df(od_df, edges_df, buffer_radius=500):
     
     return od_df_exploded
 
-def filter_exploded_od_df(gdf_net, G, exploded_od_df, keep_one_od_per_component=False):
+def filter_exploded_od_df(gdf_net, G, exploded_od_df):
     initial_attrs = exploded_od_df.attrs
     # Create a dataframe for all the connected components in the network.
     network_graph = G.edge_subgraph(gdf_net.index)
@@ -217,11 +217,9 @@ def filter_exploded_od_df(gdf_net, G, exploded_od_df, keep_one_od_per_component=
             components_df.append({'component_id': i, 'edge': edge})
     components_df = pd.DataFrame(components_df)
 
-    #print("[0] ", 1929 in exploded_od_df.od_df_idx.unique())
-
     # Remove all possible paths that start or end on an edge that isn't part of the network.
     exploded_od_df = exploded_od_df[(exploded_od_df.origin_link.isin(gdf_net.index)) & (exploded_od_df.destination_link.isin(gdf_net.index))]
-    #print("[1] ", 1929 in exploded_od_df.od_df_idx.unique())
+
     # Get the component that each edge is on
     tmp = pd.merge(exploded_od_df, components_df, left_on='origin_link', right_on='edge').rename(columns={'component_id': 'origin_component_id'})
     exploded_od_df = pd.merge(tmp, components_df, left_on='destination_link', right_on='edge').rename(columns={'component_id': 'destination_component_id'})
@@ -232,13 +230,6 @@ def filter_exploded_od_df(gdf_net, G, exploded_od_df, keep_one_od_per_component=
 
     # Only retain trips that are on the same component since others will obviously not be routable.
     exploded_od_df = exploded_od_df[exploded_od_df.origin_component_id == exploded_od_df.destination_component_id]
-    #print("[2] ", 1929 in exploded_od_df.od_df_idx.unique())
-
-    # For all the possible remaining trips, keep only a single one, that is the one that has the smallest total distance between the true origin and the snapped origin and the 
-    # true destination and the snaped destination.
-    if keep_one_od_per_component:
-        exploded_od_df = exploded_od_df.loc[exploded_od_df.groupby(['od_df_idx', 'origin_component_id', 'destination_component_id'])['orig_dest_tot_disag_dist'].idxmin()]
-    #print("[3] ", 1929 in exploded_od_df.od_df_idx.unique())
 
     exploded_od_df.attrs = initial_attrs
     return exploded_od_df
@@ -633,7 +624,7 @@ def calculate_fitness(individual,
             time.sleep(1)
     else:
         logging.debug("Could not calculate fitness for individual with working directory %s. Returning insane fitness result." % working_directory)
-        # Did not encouter "break", which means that we had three exceptions in a row
+        # Did not encouter "break", which means that we had n_retries exceptions in a row
         # We can return a SimulationResult which indicates failure.
         # FIXME: this should have a "failed" flag...
         ret_val = SimulationResult(fitness=9999999, total_duration=9999999, unreachable_trips=9999999, network_length=9999999, trips=None)
@@ -653,7 +644,7 @@ def _calculate_fitness(individual,
 
     network = edges_df[np.array(individual).astype(bool)]
     network_length = calculate_network_length(network)
-    od_df_exploded = filter_exploded_od_df(network, G, od_df_exploded, keep_one_od_per_component=optimization_params.KEEP_ONE_OD_PER_COMPONENT)
+    od_df_exploded = filter_exploded_od_df(network, G, od_df_exploded)
 
     working_directory = pathlib.Path(working_directory)
     osrm_folder = working_directory / 'osrm'
@@ -666,7 +657,6 @@ def _calculate_fitness(individual,
     df_ = pd.DataFrame({'sequential_id': network.sequential_id})
     df_.to_csv(osrm_folder / "csv_filter.csv", index=False, header=None)        
 
-    cwd = os.getcwd()
     os.chdir(osrm_folder)
     osm_xml_file_path = list(osrm_folder.glob("*.xml"))[0] #/ pathlib.Path(osm_xml_path).name
     lua_profile_path = list(osrm_folder.glob("*.lua"))[0]
@@ -708,7 +698,7 @@ def _calculate_fitness(individual,
         od_df_exploded_copy.at[row_id, 'trip_bike_distance'] = distance
         od_df_exploded_copy.at[row_id, 'trip_duration'] = duration
         od_df_exploded_copy.at[row_id, 'trip_geometry'] = geometry
-    walking_speed = 5 / 3.6 # 5 km/h in m/s
+    walking_speed = optimization_params.WALKING_SPEED / 3.6 # Convert km/h to m/s
 
     # The total duration and distance are the duration and distances on the network plus the duration and distances for the access and egress portions.
     od_df_exploded_copy['total_distance'] = od_df_exploded_copy['trip_bike_distance'] + od_df_exploded_copy['orig_dest_tot_disag_dist']

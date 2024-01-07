@@ -2,6 +2,7 @@
 import argparse
 import logging
 import os
+import sys
 from dataclasses import asdict
 import math
 import datetime
@@ -12,39 +13,46 @@ import time
 import random
 import pandas as pd
 import osmnx as ox
+import pathlib
 from pathlib import Path
+import tempfile
 import ray
+import optuna
 from masters import *
 
 from deap import creator, base, tools
 from types import SimpleNamespace
 
 from sys import platform
+
+# You can change this code to decide if you want to perform calculations
+# in series or in parallel. Generally, I recommend using series (osrm_batch_router)
+# if you are creating one Ray worker per available CPU.
+# Otherwise, if running just a single worker, use the parallel version.
+# The code below is the configuration I used; feel free to try something else
+# depending on the calculation infrastructure that you have.
 if platform == "linux" or platform == "linux2":
-    osrm_batch_router_executable = "osrm_batch_router"
-    P_ROOT = Path("~/masters-code/").expanduser()
-elif platform == "darwin": # OS X
-    osrm_batch_router_executable = "osrm_batch_router_parallel"
-    P_ROOT = Path("~/code/masters-code/").expanduser()
+    OSRM_BATCH_ROUTER_EXECUTABLE_NAME = "osrm_batch_router"
+elif platform == "darwin": 
+    OSRM_BATCH_ROUTER_EXECUTABLE_NAME = "osrm_batch_router_parallel"
 elif platform == "win32":
-    raise ValueError("Windows support has not been tested. It may work, but has never been tested.")
+    raise ValueError("""
+                     Windows support has not been tested. It may work, but has never been tested.
+                     Modify this code to remove this ValueError in order to try running on Windows.
+                     """)
 
-import optuna
-
-ALGO_ROOT = P_ROOT / "osm" / "algo"
-os.chdir(ALGO_ROOT)
+CODE_FOLDER_DIR = Path(__file__).parent.resolve()
 
 logger = logging.getLogger('gen_algo')
 
 def configure_logger(logger_, level):
     ch = logging.StreamHandler()
-    ch.setLevel(args.loglevel)
+    ch.setLevel(level)
     ch.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(process)d - %(funcName)s: %(message)s'))
     logger_.addHandler(ch)
-    logger_.setLevel(args.loglevel)
+    logger_.setLevel(level)
     return logger_
 
-N_WORKERS = (40-2) * int(os.environ.get('SLURM_NNODES', 1))
 worker_pool = None
 
 def creator_setup():
@@ -65,18 +73,21 @@ def create_toolbox(parameters):
 #print(os.environ.get('ray_head_node_ip'))
 ray.init(address=os.environ.get('ray_head_node_ip'))
 
+#############################################################################
+# Genetic algorithm worker
+#############################################################################
 from ray.util import ActorPool
-
 @ray.remote(num_cpus=1, max_restarts=-1, max_task_retries=-1)
-class RayActor():
+class GeneticAlgorithmWorker():
     def __init__(self, edges_data=None, params=None, worker_id=None, master_directory=None, od_df_path=None, graph_path=None, creator_setup=None, loglevel=logging.DEBUG):
         # recreate scope from global
         if creator_setup is not None:
             creator_setup()
 
-        # Use SLURM_TMPDIR (a fast, local filesystem) if available.
-        # Revert to /scratch (a slow, network filesystem) otherwise
-        worker_directory = Path(os.environ.get("SLURM_TMPDIR", "~/scratch")) / "genetic_algorithm" / f"worker_{worker_id}"
+        # NOTE: If the calculations seem really slow, it might be because
+        # of slow disk IO on network filesystems.
+        # ** MAKE SURE that the temp folder is being created on a local file system (NOT networked!) **
+        worker_directory = Path(os.environ.get("SLURM_TMPDIR", tempfile.gettempdir())) / "genetic_algorithm" / f"worker_{worker_id}"
         if worker_directory.exists() and worker_directory.is_dir():
             shutil.rmtree(worker_directory) # Empty the directory if it exists
         worker_directory.mkdir(parents=True)
@@ -84,8 +95,8 @@ class RayActor():
         # Copy master data to worker directory.
         #shutil.copytree(master_directory, worker_directory, dirs_exist_ok=True)
         prepare_optimization(directory=worker_directory,
-            osm_xml_path=ALGO_ROOT / "zones" / f"zone_{params.ZONE}" / "osrm_network.xml",
-            lua_profile_path=P_ROOT / 'osm' / 'profiles' / 'bicycle_scenario_5_csv_filter.lua')
+            osm_xml_path=params.DATA_FOLDER / "osrm_network.xml",
+            lua_profile_path=CODE_FOLDER_DIR / 'osrm_profiles' / 'bicycle_profile_with_csv_edge_filter.lua')
 
         self.logger = logging.getLogger(__name__)
         self.logger = configure_logger(self.logger, loglevel)
@@ -94,6 +105,7 @@ class RayActor():
         self.params = params
         self.worker_directory = worker_directory
         self.logger.debug("Hello from worker %d -- %s" % (worker_id, self.worker_directory))
+        self.logger.debug("The next step might take a while (several minutes), please be patient...")
 
         od_df = pd.read_csv(od_df_path)
         self.od_df_exploded = create_exploded_od_df(od_df, edges_data['gdf_links'])
@@ -102,17 +114,18 @@ class RayActor():
         self.logger.debug("Worker is ready. %d -- %s" % (worker_id, self.worker_directory))
 
     def evaluate_individual(self, individual, parameters):
-        if parameters.SORT_METHOD == 'none':
-            edges_df = self.edges_data['gdf_links']
-        else:
-            edges_df = self.edges_data['gdf_links_sorted']
+        edges_df = self.edges_data['gdf_links']
 
         return calculate_fitness(individual=individual, edges_df=edges_df,
                         working_directory=self.worker_directory, # The directory containing the 'osrm' folder as well as other relevant files (od_trips.csv, etc)
-                        osrm_batch_router_path=P_ROOT / "c++" / "build" / osrm_batch_router_executable, # Full path to osrm_batch_router
+                        osrm_batch_router_path=CODE_FOLDER_DIR / "osrm_batch_router" / "build" / OSRM_BATCH_ROUTER_EXECUTABLE_NAME, # Full path to osrm_batch_router
                         od_df_exploded=self.od_df_exploded,
                         G=self.graph,
                         optimization_params=parameters)
+
+#############################################################################
+# Main code
+#############################################################################
 
 def save_run_to_global_logbook(trial, repetition, min_fit, logbook_path):
     df = pd.DataFrame([{'trial': trial, 'repetition': repetition, 'min_fit': min_fit}])
@@ -126,7 +139,7 @@ def run_genetic_algorithm(params,
                   checkpoint=None):
     start_timestamp = time.time()
 
-    if checkpoint:
+    if checkpoint: # TODO: this hasn't been tested in a long time, but technically there is a way to resume a run after stopping it.
         # A file #name has been given, then load the data from the file
         with open(checkpoint, "rb") as cp_file:
             cp = pickle.load(cp_file)
@@ -167,7 +180,13 @@ def run_genetic_algorithm(params,
 
     # Save the simulation parameters in the simulations folder
     with open(simulations_folder / "simulation_params.json", 'w', encoding='utf-8') as f:
-        params_sanitized = {key: str(value) if type(value) == types.FunctionType else value for key, value in params.__dict__.items()}
+        params_sanitized = {}
+        for k, v in params.__dict__.items():
+            if type(v) == types.FunctionType or isinstance(v, pathlib.PurePath) == True:
+                params_sanitized[k] = str(v)
+            else:
+                params_sanitized[k] = v
+    
         json.dump(params_sanitized, f, ensure_ascii=False, indent=4)
 
     stats = tools.Statistics(lambda ind: ind.fitness.values)
@@ -298,8 +317,8 @@ def run_genetic_algorithm(params,
                 stop = True
 
         tot_runtime = time.time() - start_timestamp
-        if tot_runtime > params.SIMULATION_RUNTIME_LIMIT: # Limit runtime
-            logger.debug("Stopping due to runtime limit: %d >= %d" % (tot_runtime, params.SIMULATION_RUNTIME_LIMIT))
+        if tot_runtime > params.RUNTIME_LIMIT: # Limit runtime
+            logger.debug("Stopping due to runtime limit: %d >= %d" % (tot_runtime, params.RUNTIME_LIMIT))
             stop = True
 
         if gen % params.CHECKPOINT_FREQ == 0 or stop: # Save a checkpoint when we stop
@@ -351,36 +370,48 @@ mate_funcs = {'probabilisticGeneCrossover': probabilistic_gene_crossover,
 def create_argparser():
     # create the top-level parser
     parser = argparse.ArgumentParser(prog='Genetic algorithm')
-    parser.add_argument('-a', '--auto', action=argparse.BooleanOptionalAction)
+    parser.add_argument('-a', dest="auto", action=argparse.BooleanOptionalAction, help="Perform hyperparameter optimization using Optuna")
+    parser.add_argument('--optuna_log', type=Path, help="Path to optuna log. File name must end in .log")
     parser.add_argument('--random_search', action=argparse.BooleanOptionalAction)
     parser.add_argument('--random_search_output', type=str)
     parser.add_argument('-s', '--seeding', action=argparse.BooleanOptionalAction)
     parser.add_argument('-d', '--debug',
-                        help="Print lots of debugging statements",
+                        help="Print a lot of debugging statements",
                         action="store_const", dest="loglevel", const=logging.DEBUG,
                         default=logging.INFO)
-    parser.add_argument('--zone', type=str)
+    parser.add_argument('--data_folder', type=Path, required=True, help="The folder containing the input data created during the data preparation step.")
     parser.add_argument('--value_of_time', type=float, default=10)
     parser.add_argument('--unreachable_trip_cost', type=float, default=30)
-    parser.add_argument('--output_folder', type=str)
-    parser.add_argument('--n_pop', type=int, default=10)
+    parser.add_argument('--output_folder', type=Path, required="-a" not in sys.argv)
+    parser.add_argument('--n_workers', type=int, default=2, help="Number of workers to use for parallel network quality evaluation. Use number of CPUs available on system")
+    parser.add_argument('--n_pop', type=int, default=10) # TODO: change these values to use defaults from hyper param optim in paper
     parser.add_argument('--n_gen', type=int, default=1000)
     parser.add_argument('--n_runs', type=int, default=1) # how many runs of the genetic algorithm to do
-    parser.add_argument('--checkpoint_freq', type=int, default=5)
+    parser.add_argument('--checkpoint_freq', type=int, default=1, help="save a checkpoint after X numbers of generations [default: 1]. Will overrite previous checkpoint.")
+    parser.add_argument('--runtime_limit', 
+                        type=int,
+                        default=3*60*60, # 3 hours in seconds
+                        help="Max runtime (in seconds) for each genetic algorithm execution")
     parser.add_argument('--save_genealogy', action='store_true')
-    parser.add_argument('--keep_one_od_per_component', action='store_true')
+    parser.add_argument('--walking_speed', type=float, default=5, help="Walking speed in km/h [default: 5 km/h]")
     parser.add_argument('--cxpb', type=float, default=1.0)
     parser.add_argument('--mutpb', type=float, default=0.06)
     parser.add_argument('--n_elites_prop', type=float, default=0.05)
     parser.add_argument('--tourn_size', type=int, default=4)
     parser.add_argument('--max_cycling_length_prop', type=float, default=0.25)
     parser.add_argument('--constraint_penalty', type=int, default=500000)
-    parser.add_argument('--stop_no_improve', type=int, default=20)
+    parser.add_argument('--max_gen_no_improvement', 
+                        type=int, 
+                        default=30,
+                        help="Terminate optimization after X generations with negligable improvement (see --min_delta_improvement) [default: 30 generations]")
+    parser.add_argument('--min_delta_improvement',
+                        type=float,
+                        default=0.5/100,
+                        help="What to consider to be a meaningful improvement in fitness, in percentage (see --max_gen_no_improvement) [default: 0.005]")
     parser.add_argument('--mate',
                         type=str,
                         choices=list(mate_funcs.keys()),
                         default='cxOnePoint')
-    parser.add_argument('--sort_method', type=str, choices=['hilbert_curve', 'none'], default='none')
     parser.add_argument('--mutation_rate_type',
                         type=str,
                         choices=["constant", "exponential_decay", "step_decrease"],
@@ -394,14 +425,8 @@ def create_argparser():
 base_params = SimpleNamespace(
     GENE_MIN=0, # Binary genes (0 and 1)
     GENE_MAX=1,
-    #MAX_ACCESS_EGRESS_DISTANCE=500, # meters
-    #MAX_GAP_DISTANCE=50, # meters
     MUTATE_FUNC=tools.mutFlipBit, # Mutation operator
     SELECT_FUNC=tools.selTournament, # Selection operator
-    SIMULATION_RUNTIME_LIMIT=3*60*60, # seconds
-    N_REPETITIONS=10, # Number of repetitions of each trial
-    PATIENCE=30,
-    MIN_DELTA=0.5/100, # What to consider to be a meaningful decrease in fitness, in percentage, after PATIENCE generations.
 )
 
 def merge_parameters(first, second):
@@ -444,16 +469,7 @@ def _optuna_run(trial, parameters, data, results_directory):
         gamma = trial.suggest_float("mutpb_step_decrease_gamma", 0.70, 0.99)
         parameters = merge_parameters(parameters, SimpleNamespace(MUTPB_STEP_DECREASE_GAMMA=gamma))
 
-    if parameters.MATE in ['cxOnePoint', 'cxTwoPoint']:
-        sort_method = trial.suggest_categorical('sort_method', ['none', 'hilbert_curve'])
-        if sort_method == 'none':
-            gdf_links = data['gdf_links']
-        elif sort_method == 'hilbert_curve':
-            gdf_links = data['gdf_links_sorted']
-        parameters = merge_parameters(parameters, SimpleNamespace(SORT_METHOD=sort_method))
-    else:
-        parameters = merge_parameters(parameters, SimpleNamespace(SORT_METHOD='none'))
-        gdf_links = data['gdf_links']
+    gdf_links = data['gdf_links']
 
     logger.debug("_optuna_run: trial #%d, parameters: %s" % (trial.number, repr(parameters)))
 
@@ -515,11 +531,10 @@ def _optuna_run(trial, parameters, data, results_directory):
 def _setup_simulation(parameters):
     global worker_pool
     logger.debug("Loading gdf_links...")
-    # TODO: clean up this mess of repeated variables here and in RayActor.
-    zone_folder = ALGO_ROOT / "zones" / f"zone_{parameters.ZONE}"
-    graph_path = zone_folder / "G_simplified.graphml"
+    # TODO: clean up this mess of repeated variables here and in GeneticAlgorithmWorker.
+    graph_path = parameters.DATA_FOLDER / "G_simplified.graphml"
     gdf_links = ox.graph_to_gdfs(ox.load_graphml(filepath=graph_path), nodes=False)
-    data = {'gdf_links': gdf_links, 'gdf_links_sorted': sort_using_hilbert_curve(gdf_links, n=2, p=16)}
+    data = {'gdf_links': gdf_links}
 
     parameters = merge_parameters(parameters, SimpleNamespace(
         TOTAL_AVAILABLE_CYCLING_NETWORK_LENGTH=gdf_links['length'].sum(),
@@ -529,27 +544,21 @@ def _setup_simulation(parameters):
     # DEAP configuration
     creator_setup()
 
-    #scratch_root = Path(os.environ.get("SLURM_TMPDIR", "/scratch"))
-    scratch_dir = Path("/scratch") / os.environ['USER'] / "genetic_algorithm"
+    scratch_dir = Path(tempfile.gettempdir()) / os.environ['USER'] / "genetic_algorithm"
     master_directory = scratch_dir / "master"
     if scratch_dir.exists() and scratch_dir.is_dir():
         shutil.rmtree(scratch_dir) # Empty the directory
-    scratch_dir.mkdir() # (Re-)create the directory
+    scratch_dir.mkdir(parents=True) # (Re-)create the directory
 
-    #logger.debug('Preparing master directory %s', master_directory)
-    #prepare_optimization(directory=master_directory,
-    #    osm_xml_path=ALGO_ROOT / "zones" / f"zone_{parameters.ZONE}" / "osrm_network.xml",
-    #    lua_profile_path=P_ROOT / 'osm' / 'profiles' / 'bicycle_scenario_4_csv_filter.lua')
-
-    logger.debug('Preparing %d workers' % N_WORKERS)
+    logger.debug('Preparing %d workers' % parameters.N_WORKERS)
 
     workers = []
 
-    for worker_id in range(N_WORKERS):
-        workers.append(RayActor.remote(creator_setup=creator_setup,
+    for worker_id in range(parameters.N_WORKERS):
+        workers.append(GeneticAlgorithmWorker.remote(creator_setup=creator_setup,
             params=parameters,
             edges_data=data,
-            od_df_path=zone_folder / "od_df_filtered.csv",
+            od_df_path=parameters.DATA_FOLDER / "od_df_filtered.csv",
             graph_path=graph_path,
             worker_id=worker_id,
             master_directory=master_directory
@@ -559,23 +568,27 @@ def _setup_simulation(parameters):
 
     return parameters, data
 
-def run_optuna():
+def run_optuna(args):
     parameters = SimpleNamespace(
-        ZONE=9,
-        NGEN=5000, # Number of generations
+        N_WORKERS=args.n_workers,
+        RUNTIME_LIMIT=args.runtime_limit,
+        WALKING_SPEED=args.walking_speed,
+        PATIENCE=args.max_gen_no_improvement,
+        MIN_DELTA=args.min_delta_improvement,
+        NGEN=5000, # Number of generations; arbitrarily large number of generations to let it run until a combination of min_delta_improvement and max_gen_no_improvement
         CHECKPOINT_FREQ=5,
+        N_REPETITIONS=10, # Number of repetitions of each trial
         PRUNING_MIN_REPETITIONS=5, # Do at least X steps in a trial before pruning
         PRUNING_WARMUP_TRIALS=40, # Do at least X trials before pruning
         VALUE_OF_TIME=10, # $/h
         UNREACHABLE_TRIP_COST=30, # $
-        KEEP_ONE_OD_PER_COMPONENT=False,
     )
     parameters = merge_parameters(parameters, base_params)
     parameters, data = _setup_simulation(parameters)
 
-    study_name = f"gen-algo-study-zone-{parameters.ZONE}"  # Unique identifier of the study.
+    study_name = str(parameters.optuna_log)  # Unique identifier of the study.
     storage = optuna.storages.JournalStorage(
-        optuna.storages.JournalFileStorage(f"{study_name}.log"),
+        optuna.storages.JournalFileStorage(str(parameters.optuna_log)),
     )
     logger.debug("optuna: created storage")
 
@@ -585,7 +598,8 @@ def run_optuna():
         sampler=optuna.samplers.TPESampler(n_startup_trials=parameters.PRUNING_WARMUP_TRIALS),
     )
     logger.debug("loaded study with sampler %s!" % (str(study.sampler.__class__.__name__)))
-    #print("after create_studym before optimize")
+
+    logger.debug("Starting Optuna...")
     results_directory = Path.home() / f"{study_name}-results" 
     study.optimize(lambda trial: _optuna_run(trial, parameters, data, results_directory=results_directory), n_trials=5000)
 
@@ -607,29 +621,31 @@ if __name__ == '__main__':
     logger.debug("Entry point")
 
     if args.auto: # Optimize hyperparameters with Optuna
-        run_optuna()
+        run_optuna(args)
     else:
         parameters = SimpleNamespace(
-            ZONE=args.zone,
+            N_WORKERS=args.n_workers,
+            RUNTIME_LIMIT=args.runtime_limit,
+            WALKING_SPEED=args.walking_speed,
+            DATA_FOLDER=args.data_folder,
             NGEN=args.n_gen, # Number of generations
-            NPOP=700,#args.n_pop, # Number of individuals in each generation
+            NPOP=args.n_pop, # Number of individuals in each generation
             CHECKPOINT_FREQ=args.checkpoint_freq, # Save a checkpoint every X generations
             SAVE_GENEALOGY=args.save_genealogy, # Save genetic algorithm genealogy tree to pickle file
-            CXPB=0.5692971440204605,#args.cxpb, # Probability of crossover
-            MUTPB=0.09285588170459269,#args.mutpb, # Probability of mutating an individual
+            CXPB=args.cxpb, # Probability of crossover
+            MUTPB=args.mutpb, # Probability of mutating an individual
             MUTPB_DECAY_RATE=args.mutpb_decay_rate,
-            MUTPB_STEP_DECREASE_GAMMA=0.8580528878404198,#args.mutpb_step_decrease_gamma,
-            MUTATION_RATE_TYPE="step_decrease",#args.mutation_rate_type,
-            N_ELITES=int(0.20*700),#int(args.n_elites_prop * args.n_pop), # Number of elites
-            TOURN_SIZE=20,#args.tourn_size,  # Tournament size
+            MUTPB_STEP_DECREASE_GAMMA=args.mutpb_step_decrease_gamma,
+            MUTATION_RATE_TYPE=args.mutation_rate_type,
+            N_ELITES=int(args.n_elites_prop * args.n_pop), # Number of elites
+            TOURN_SIZE=args.tourn_size,  # Tournament size
             CONSTRAINT_PENALTY=args.constraint_penalty,
-            #PATIENCE=args.stop_no_improve,
-            MATE="probabilisticGeneCrossover",#args.mate,
-            MATE_FUNC=probabilistic_gene_crossover,#mate_funcs[args.mate], # Crossover operator
-            SORT_METHOD=args.sort_method,
+            PATIENCE=args.max_gen_no_improvement,
+            MIN_DELTA=args.min_delta_improvement,
+            MATE=args.mate,
+            MATE_FUNC=mate_funcs[args.mate], # Crossover operator
             VALUE_OF_TIME=args.value_of_time, # $/h
             UNREACHABLE_TRIP_COST=args.unreachable_trip_cost, # $
-            KEEP_ONE_OD_PER_COMPONENT=args.keep_one_od_per_component
         )
 
         parameters = merge_parameters(parameters, base_params)
@@ -657,7 +673,7 @@ if __name__ == '__main__':
             results_df = results_df.sort_values('fitness')
             results_df.to_csv(args.random_search_output, index=False)
         else: # Manual genetic algorithm mode
-            root_simulations_folder = Path(args.output_folder)
+            root_simulations_folder = args.output_folder
             root_simulations_folder.mkdir(parents=True, exist_ok=True)
             for i in range(args.n_runs):
                 # Create a folder to store the results of this run
@@ -673,3 +689,4 @@ if __name__ == '__main__':
                                             simulations_folder=sim_folder)#,
                                             #seeding=False)
                 logger.info("Run %d: best fitness obtained %f" % (i, score))
+            logger.info("Nothing left to do. Exiting.")
