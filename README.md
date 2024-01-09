@@ -114,7 +114,7 @@ Dropped 27385 (81.2 %) trips. Remaining trips: 6356
 The main Python script of this project is `genetic_algorithm.py`, located in the `code/` subfolder. This code is the crux of this research: given a set of parameters, it will design the best cycling network for a given territory.
 
 ## Prerequisites
-Before using this script, you must complete the data preparation step outlined above in this file.
+Before using this script, you must complete the data preparation step outlined above in this file. You must also compile `osrm-batch-router`. Follow instructions in `code/osrm_batch_router/README.md`.
 
 ## Parameters
 ```bash
