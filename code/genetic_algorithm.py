@@ -370,40 +370,96 @@ mate_funcs = {'probabilisticGeneCrossover': probabilistic_gene_crossover,
 def create_argparser():
     # create the top-level parser
     parser = argparse.ArgumentParser(prog='Genetic algorithm')
-    parser.add_argument('-a', dest="auto", action=argparse.BooleanOptionalAction, help="Perform hyperparameter optimization using Optuna")
-    parser.add_argument('--optuna_log', type=Path, help="Path to optuna log. File name must end in .log")
-    parser.add_argument('--random_search', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--random_search_output', type=str)
-    parser.add_argument('-s', '--seeding', action=argparse.BooleanOptionalAction)
+    parser.add_argument('-a', 
+                        dest="auto", 
+                        action=argparse.BooleanOptionalAction, 
+                        help="Perform hyperparameter optimization using Optuna")
+    parser.add_argument('--optuna_log', 
+                        type=Path, 
+                        help="Path to optuna log file. File name must end in .log")
+    parser.add_argument('--random_search', 
+                        action=argparse.BooleanOptionalAction,
+                        help="Generate --n_pop individuals randomly and measure their fitness")
+    parser.add_argument('--random_search_output', 
+                        type=str, help="File path where to save report of random search")
     parser.add_argument('-d', '--debug',
                         help="Print a lot of debugging statements",
                         action="store_const", dest="loglevel", const=logging.DEBUG,
                         default=logging.INFO)
-    parser.add_argument('--data_folder', type=Path, required=True, help="The folder containing the input data created during the data preparation step.")
-    parser.add_argument('--value_of_time', type=float, default=10)
-    parser.add_argument('--unreachable_trip_cost', type=float, default=30)
-    parser.add_argument('--output_folder', type=Path, required="-a" not in sys.argv)
-    parser.add_argument('--n_workers', type=int, default=2, help="Number of workers to use for parallel network quality evaluation. Use number of CPUs available on system")
-    parser.add_argument('--n_pop', type=int, default=10) # TODO: change these values to use defaults from hyper param optim in paper
-    parser.add_argument('--n_gen', type=int, default=1000)
-    parser.add_argument('--n_runs', type=int, default=1) # how many runs of the genetic algorithm to do
-    parser.add_argument('--checkpoint_freq', type=int, default=1, help="save a checkpoint after X numbers of generations [default: 1]. Will overrite previous checkpoint.")
+    parser.add_argument('--data_folder', 
+                        type=Path, 
+                        required=True, 
+                        help="The folder containing the input data created during the data preparation step.")
+    parser.add_argument('--value_of_time', 
+                        type=float, 
+                        default=10, 
+                        help="Value of time in model [default: 10 $/h]")
+    parser.add_argument('--unreachable_trip_cost', 
+                        type=float, 
+                        default=30, 
+                        help="Value of unreachable trip in model [default: 30 $]")
+    parser.add_argument('--output_folder', 
+                        type=Path, 
+                        help="Folder where to output optimization results")
+    parser.add_argument('--n_workers', 
+                        type=int, 
+                        default=2, 
+                        help="Number of workers to use for parallel network quality evaluation. Use number of CPUs available on system [default: 2]")
+    parser.add_argument('--n_pop', 
+                        type=int, 
+                        default=700, 
+                        help="Size of population")
+    parser.add_argument('--n_gen', 
+                        type=int, 
+                        default=1000, 
+                        help="Number of genetic algorithms generations to run for. Early stopping possible with --runtime_limit, or combination of --max_gen_no_improvement and --min_delta_improvement")
+    parser.add_argument('--n_runs', 
+                        type=int, 
+                        default=1, 
+                        help="Number of optimization runs of the to perform [default: 1]") # how many runs of the genetic algorithm to do
+    parser.add_argument('--checkpoint_freq', 
+                        type=int, 
+                        default=1, 
+                        help="Save a checkpoint after X numbers of generations [default: 1]. Will overrite previous checkpoint.")
     parser.add_argument('--runtime_limit', 
                         type=int,
                         default=3*60*60, # 3 hours in seconds
-                        help="Max runtime (in seconds) for each genetic algorithm execution")
-    parser.add_argument('--save_genealogy', action='store_true')
-    parser.add_argument('--walking_speed', type=float, default=5, help="Walking speed in km/h [default: 5 km/h]")
-    parser.add_argument('--cxpb', type=float, default=1.0)
-    parser.add_argument('--mutpb', type=float, default=0.06)
-    parser.add_argument('--n_elites_prop', type=float, default=0.05)
-    parser.add_argument('--tourn_size', type=int, default=4)
-    parser.add_argument('--max_cycling_length_prop', type=float, default=0.25)
-    parser.add_argument('--constraint_penalty', type=int, default=500000)
+                        help="Max runtime (in seconds) for each genetic algorithm execution [default: 3 hours]")
+    parser.add_argument('--save_genealogy', 
+                        action='store_true',
+                        help="Save genealogy tree during genetic algorithm run. Hasn't really been tested properly though.")
+    parser.add_argument('--walking_speed',
+                        type=float, 
+                        default=5, 
+                        help="Walking speed in km/h [default: 5 km/h]")
+    parser.add_argument('--cxpb', 
+                        type=float,
+                        default=0.569, 
+                        help="Crossover probability [default: 0.569]")
+    parser.add_argument('--mutpb', 
+                        type=float, 
+                        default=0.092, 
+                        help="Mutation probability [default: 0.092]")
+    parser.add_argument('--n_elites_prop', 
+                        type=float, 
+                        default=0.2, 
+                        help="Proportion of elites probability [default: 0.2]")
+    parser.add_argument('--tourn_size', 
+                        type=int, 
+                        default=20, 
+                        help="Size of tournament for individuals selection [default: 20]")
+    parser.add_argument('--max_cycling_length_prop', 
+                        type=float, 
+                        default=0.25, 
+                        help="Maximum size of cycling network (for budgetary constraint) as a proportion of the length of all edges in input network [default: 0.25]")
+    parser.add_argument('--constraint_penalty', 
+                        type=int, 
+                        default=500000,
+                        help="Value to add to fitness of individuals which do not respect the budgetary constraint [default: 500000]")
     parser.add_argument('--max_gen_no_improvement', 
                         type=int, 
                         default=30,
-                        help="Terminate optimization after X generations with negligable improvement (see --min_delta_improvement) [default: 30 generations]")
+                        help="Terminate optimization after X generations with negligable improvement (see also --min_delta_improvement) [default: 30]")
     parser.add_argument('--min_delta_improvement',
                         type=float,
                         default=0.5/100,
@@ -411,16 +467,23 @@ def create_argparser():
     parser.add_argument('--mate',
                         type=str,
                         choices=list(mate_funcs.keys()),
-                        default='cxOnePoint')
+                        default='probabilisticGeneCrossover',
+                        help="Crossover method [default: probabilisticGeneCrossover]")
     parser.add_argument('--mutation_rate_type',
                         type=str,
                         choices=["constant", "exponential_decay", "step_decrease"],
-                        default='constant')
-    parser.add_argument('--mutpb_decay_rate', type=float, default=0.95)
-    parser.add_argument('--mutpb_step_decrease_gamma', type=float, default=0.75)
+                        default='step_decrease',
+                        help="Mutation decrease method [default: step_decrease]")
+    parser.add_argument('--mutpb_decay_rate', 
+                        type=float, 
+                        default=0.95,
+                        help="Mutation decay rate for exponential_decay method [default: 0.95]")
+    parser.add_argument('--mutpb_step_decrease_gamma', 
+                        type=float, 
+                        default=0.858,
+                        help="Mutation step reduction for step_decrease method [default: 0.858]")
 
     return parser
-
 
 base_params = SimpleNamespace(
     GENE_MIN=0, # Binary genes (0 and 1)
@@ -492,7 +555,7 @@ def _optuna_run(trial, parameters, data, results_directory):
         parameters_ = merge_parameters(parameters, SimpleNamespace(TRIAL=trial.number, REPETITION=repetition))
 
         # Create a folder to store the results of this run
-        simulations_folder = results_directory / f"{parameters_.TRIAL}-r{parameters_.REPETITION}"
+        simulations_folder = results_directory / f"trial_{parameters_.TRIAL}-run_{parameters_.REPETITION}"
         simulations_folder.mkdir(parents=True, exist_ok=True)
 
         score = run_genetic_algorithm(toolbox=toolbox, params=parameters_, edges_df=gdf_links, simulations_folder=simulations_folder)
@@ -538,7 +601,7 @@ def _setup_simulation(parameters):
 
     parameters = merge_parameters(parameters, SimpleNamespace(
         TOTAL_AVAILABLE_CYCLING_NETWORK_LENGTH=gdf_links['length'].sum(),
-        MAX_CYCLING_NETWORK_LENGTH=0.25 * gdf_links['length'].sum() # TODO make 0.25 a parameter
+        MAX_CYCLING_NETWORK_LENGTH=parameters.MAX_CYCLING_LENGTH_PROP * gdf_links['length'].sum()
     ))
 
     # DEAP configuration
@@ -554,7 +617,7 @@ def _setup_simulation(parameters):
 
     workers = []
 
-    for worker_id in range(parameters.N_WORKERS):
+    for worker_id in range(1, parameters.N_WORKERS+1):
         workers.append(GeneticAlgorithmWorker.remote(creator_setup=creator_setup,
             params=parameters,
             edges_data=data,
@@ -575,6 +638,7 @@ def run_optuna(args):
         WALKING_SPEED=args.walking_speed,
         PATIENCE=args.max_gen_no_improvement,
         MIN_DELTA=args.min_delta_improvement,
+        MAX_CYCLING_LENGTH_PROP=args.max_cycling_length_prop,
         DATA_FOLDER=args.data_folder,
         OPTUNA_LOG_PATH=args.optuna_log,
         NGEN=5000, # Number of generations; arbitrarily large number of generations to let it run until a combination of min_delta_improvement and max_gen_no_improvement
@@ -602,7 +666,7 @@ def run_optuna(args):
     logger.debug("loaded study with sampler %s!" % (str(study.sampler.__class__.__name__)))
 
     logger.debug("Starting Optuna...")
-    results_directory = Path.home() / f"{study_name}-results" 
+    results_directory = args.output_folder / f"{study_name}-results" 
     study.optimize(lambda trial: _optuna_run(trial, parameters, data, results_directory=results_directory), n_trials=5000)
 
     print("Number of finished trials: ", len(study.trials))
@@ -633,6 +697,7 @@ if __name__ == '__main__':
             NGEN=args.n_gen, # Number of generations
             NPOP=args.n_pop, # Number of individuals in each generation
             CHECKPOINT_FREQ=args.checkpoint_freq, # Save a checkpoint every X generations
+            MAX_CYCLING_LENGTH_PROP=args.max_cycling_length_prop,
             SAVE_GENEALOGY=args.save_genealogy, # Save genetic algorithm genealogy tree to pickle file
             CXPB=args.cxpb, # Probability of crossover
             MUTPB=args.mutpb, # Probability of mutating an individual
@@ -688,7 +753,6 @@ if __name__ == '__main__':
                 score = run_genetic_algorithm(toolbox=toolbox,
                                             params=parameters,
                                             edges_df=gdf_links,
-                                            simulations_folder=sim_folder)#,
-                                            #seeding=False)
+                                            simulations_folder=sim_folder)
                 logger.info("Run %d: best fitness obtained %f" % (i, score))
             logger.info("Nothing left to do. Exiting.")
