@@ -221,6 +221,12 @@ You can use [optuna-dashboard](https://github.com/optuna/optuna-dashboard) to an
 ### Running in one-off (or "manual" mode)
 This mode should be used once the hyperparameter optimization is completed and a sufficiently good hyperparameter combination has been found. Once this is the case, this mode and be used to run the genetic algorithm with different values for the model parameters.
 
+Example command:
+
+```c
+python code/genetic_algorithm.py --data_folder data --output_folder test_run3 -d --n_workers 1 --n_pop 5 --value_of_time 15 --unreachable_trip_cost 25 --runtime_limit 3600 --cxpb 0.95 --mutpb 0.05 --n_elites_prop 0.05 --tourn_size 20 --mate probabilisticGeneCrossover --mutation_rate_type constant --n_runs 2
+```
+
 An example SLURM script (for computer clusters) is provided in the `examples` folder.
 
 # License

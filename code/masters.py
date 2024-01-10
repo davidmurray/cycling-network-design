@@ -19,6 +19,9 @@ import osmnx as ox
 import folium
 import itertools
 from collections import defaultdict
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 #from hilbertcurve.hilbertcurve import HilbertCurve
 
 ## Plotting utilities
