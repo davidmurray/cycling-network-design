@@ -149,7 +149,7 @@ options:
                         Number of workers to use for parallel network quality evaluation. Use number of CPUs available on system [default: 2]
   --n_pop N_POP         Size of population
   --n_gen N_GEN         Number of genetic algorithms generations to run for. Early stopping possible with --runtime_limit, or combination of --max_gen_no_improvement and
-                        --min_delta_improvement
+                        --min_delta_improvement [default: 1000]
   --n_runs N_RUNS       Number of optimization runs of the to perform [default: 1]
   --checkpoint_freq CHECKPOINT_FREQ
                         Save a checkpoint after X numbers of generations [default: 1]. Will overrite previous checkpoint.
@@ -181,6 +181,9 @@ options:
   --mutpb_step_decrease_gamma MUTPB_STEP_DECREASE_GAMMA
                         Mutation step reduction for step_decrease method [default: 0.858]
 ```
+Additionnal info about the parameters in provided in the paper or master's thesis. See "documentation" section above.
+
+Note: to change the cycling speed, you must directly edit lines 15 and 16 of the OSRM lua profile located at `code/osrm_profiles/bicycle_profile_with_csv_edge_filter.lua`.
 
 ## Usage
 This script has two main modes:
@@ -213,5 +216,28 @@ Meaning of each parameter:
 * `--optuna_log`: Location where to save the Optuna logfile (will contain info about attempted trials and results)
 * `--n_workers`: Number of workers to use for calculations
 
+You can use [optuna-dashboard](https://github.com/optuna/optuna-dashboard) to analyse the results. Simply provide the optuna logfile to optuna-dashboard.
+
 ### Running in one-off (or "manual" mode)
 This mode should be used once the hyperparameter optimization is completed and a sufficiently good hyperparameter combination has been found. Once this is the case, this mode and be used to run the genetic algorithm with different values for the model parameters.
+
+An example SLURM script (for computer clusters) is provided in the `examples` folder.
+
+# License
+
+This repository is licensed under the Creative Commons [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) license:
+  
+    You are free to:
+    * Share — copy and redistribute the material in any medium or format
+    * Adapt — remix, transform, and build upon the material
+    The licensor cannot revoke these freedoms as long as you follow the license terms.
+
+    Under the following terms:
+
+    * Attribution — You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
+   
+    * NonCommercial — You may not use the material for commercial purposes.
+    
+    * ShareAlike — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
+    
+    * No additional restrictions — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.

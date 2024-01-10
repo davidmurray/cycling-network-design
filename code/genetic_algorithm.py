@@ -412,7 +412,7 @@ def create_argparser():
     parser.add_argument('--n_gen', 
                         type=int, 
                         default=1000, 
-                        help="Number of genetic algorithms generations to run for. Early stopping possible with --runtime_limit, or combination of --max_gen_no_improvement and --min_delta_improvement")
+                        help="Number of genetic algorithms generations to run for. Early stopping possible with --runtime_limit, or combination of --max_gen_no_improvement and --min_delta_improvement [default: 1000]")
     parser.add_argument('--n_runs', 
                         type=int, 
                         default=1, 
